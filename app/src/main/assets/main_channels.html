@@ -1,0 +1,2615 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Loop Live Player</title>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #7c3aed;
+            --primary-light: #a78bfa;
+            --primary-glow: rgba(124, 58, 237, 0.4);
+            --danger: #ef4444;
+            --surface: rgba(20, 20, 25, 0.85);
+            --surface-border: rgba(255, 255, 255, 0.1);
+            --smooth: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Tajawal', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body, html {
+            background-color: #000;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .chat-panel, .chat-panel * { user-select: text; -webkit-user-select: text; }
+        video, .top-bar, .custom-controls, .control-btn, .server-tab, .sound-activation-banner { user-select: none; -webkit-user-select: none; }
+
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .ph-spin { animation: spin 1s infinite linear !important; display: inline-block; }
+
+        .fullscreen-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+            display: none;
+        }
+
+        .fullscreen-container:fullscreen { width: 100vw; height: 100vh; }
+        .fullscreen-container:-webkit-full-screen { width: 100vw; height: 100vh; }
+
+        .player-wrapper {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .player-ambient {
+            position: absolute;
+            inset: 0;
+            box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+            z-index: 3;
+        }
+
+        video {
+            position: absolute;
+            inset: 0;
+            width: 100% !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            object-fit: contain;
+            background: #000;
+            z-index: 2;
+        }
+
+        video.fit-cover {
+            object-fit: cover !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            aspect-ratio: unset !important;
+        }
+
+        video.fit-contain {
+            object-fit: contain !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            aspect-ratio: unset !important;
+        }
+
+        video.fit-fill {
+            object-fit: fill !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            aspect-ratio: unset !important;
+        }
+
+        .top-bar {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            background: linear-gradient(180deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
+            padding: 20px 25px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 20;
+            transition: opacity 0.4s var(--smooth), transform 0.4s var(--smooth);
+            gap: 15px;
+        }
+
+        .player-wrapper.idle .top-bar {
+            opacity: 0;
+            transform: translateY(-10px);
+            pointer-events: none;
+        }
+
+        .back-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 26px;
+            cursor: pointer;
+            transition: transform 0.3s var(--smooth), color 0.3s;
+            text-decoration: none;
+            flex-shrink: 0;
+        }
+
+        .back-btn:hover { color: var(--primary-light); transform: translateX(-3px); }
+
+        .viewers-badge {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #6ee7b7;
+            font-size: 13px;
+            font-weight: 800;
+            padding: 6px 14px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .viewers-badge i { font-size: 14px; animation: pulse 1.8s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(0.95); } }
+
+        .servers-container {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            padding: 5px 0;
+            scrollbar-width: none;
+            flex-grow: 1;
+            justify-content: flex-end;
+            direction: rtl;
+        }
+
+        .servers-container::-webkit-scrollbar { display: none; }
+
+        .server-tab {
+            background: var(--surface);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--surface-border);
+            border-radius: 30px;
+            color: #ccc;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 7px 16px;
+            cursor: pointer;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s var(--smooth);
+        }
+
+        .server-tab:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+        .server-tab.active {
+            background: var(--primary);
+            color: #fff;
+            border-color: var(--primary-light);
+            box-shadow: 0 4px 15px var(--primary-glow);
+        }
+
+        .custom-controls {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background: linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 60%, transparent 100%);
+            padding: 30px 25px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            z-index: 20;
+            transition: opacity 0.4s var(--smooth), transform 0.4s var(--smooth);
+            direction: ltr;
+        }
+
+        .player-wrapper.idle .custom-controls {
+            opacity: 0;
+            transform: translateY(10px);
+            pointer-events: none;
+        }
+
+        .controls-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .controls-group { display: flex; align-items: center; gap: 12px; }
+
+        .progress-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            direction: ltr;
+        }
+
+        .progress-bar {
+            position: relative;
+            flex-grow: 1;
+            height: 5px;
+            background: rgba(255,255,255,0.22);
+            border-radius: 3px;
+            cursor: pointer;
+            transition: height 0.15s var(--smooth);
+            touch-action: none;
+        }
+
+        .progress-bar:hover, .progress-bar.dragging { height: 8px; }
+
+        .progress-buffer, .progress-fill {
+            position: absolute;
+            top: 0; left: 0;
+            height: 100%;
+            border-radius: 3px;
+            width: 0;
+            pointer-events: none;
+        }
+
+        .progress-buffer { background: rgba(255,255,255,0.35); }
+        .progress-fill { background: var(--danger); }
+
+        .progress-thumb {
+            position: absolute;
+            top: 50%; left: 0;
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            background: var(--danger);
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
+            transform: translate(-50%, -50%) scale(0);
+            transition: transform 0.15s var(--smooth);
+            pointer-events: none;
+        }
+
+        .progress-bar:hover .progress-thumb,
+        .progress-bar.dragging .progress-thumb {
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        .time-display {
+            color: #fff;
+            font-size: 12px;
+            font-weight: 800;
+            background: rgba(0,0,0,0.65);
+            border: 1px solid var(--surface-border);
+            padding: 4px 12px;
+            border-radius: 14px;
+            white-space: nowrap;
+            direction: ltr;
+            font-variant-numeric: tabular-nums;
+            flex-shrink: 0;
+        }
+
+        .time-display .live-tag { color: #fca5a5; }
+
+        .control-btn {
+            background: var(--surface);
+            border: 1px solid var(--surface-border);
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 45px; height: 45px;
+            border-radius: 50%;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            flex-shrink: 0;
+        }
+
+        .control-btn:hover { background: var(--primary-glow); border-color: var(--primary-light); transform: scale(1.05); }
+        .control-btn:active { transform: scale(0.95); }
+        .control-btn.active {
+            background: var(--primary);
+            border-color: var(--primary-light);
+            box-shadow: 0 4px 15px var(--primary-glow);
+        }
+
+        .live-badge {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            font-size: 13px;
+            font-weight: 800;
+            padding: 5px 14px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            direction: rtl;
+        }
+
+        .live-badge i { font-size: 9px; color: var(--danger); animation: blink 1.5s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        .menu-container { position: relative; }
+
+        .dropdown-menu {
+            position: absolute;
+            bottom: 60px;
+            right: 0;
+            left: auto;
+            background: var(--surface);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--surface-border);
+            border-radius: 14px;
+            padding: 8px;
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 220px;
+            max-width: min(280px, calc(100vw - 24px));
+            z-index: 100;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            direction: rtl;
+            text-align: right;
+        }
+
+        .dropdown-menu.show { display: flex; animation: slideUp 0.25s var(--smooth); }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .dropdown-item {
+            padding: 10px 12px;
+            color: #e2e8f0;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 700;
+            border-radius: 8px;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            line-height: 1.5;
+            white-space: normal;
+            word-break: normal;
+        }
+
+        .dropdown-item i { font-size: 17px; color: var(--primary-light); flex-shrink: 0; }
+        .dropdown-item:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .dropdown-item.admin-btn, .dropdown-item.admin-btn i { color: #f59e0b; }
+        .dropdown-item.selected {
+            background: rgba(124, 58, 237, 0.25);
+            color: var(--primary-light);
+            border: 1px solid var(--primary-light);
+        }
+        .dropdown-item.selected i { color: var(--primary-light); }
+
+        .dropdown-divider {
+            height: 1px;
+            background: var(--surface-border);
+            margin: 6px 4px;
+        }
+
+        .dropdown-section-title {
+            color: #888;
+            font-size: 10px;
+            font-weight: 800;
+            padding: 6px 12px 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .center-status {
+            position: absolute;
+            z-index: 15;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            background: rgba(0,0,0,0.75);
+            padding: 20px 35px;
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s var(--smooth);
+            border: 1px solid var(--surface-border);
+            text-align: center;
+            max-width: 85vw;
+        }
+
+        .center-status.show { opacity: 1; }
+        .center-status i { font-size: 36px; color: var(--primary-light); }
+
+        .sound-activation-banner {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 50;
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.95), rgba(109, 40, 217, 0.95));
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 20px;
+            padding: 22px 35px;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 20px 60px rgba(124, 58, 237, 0.6);
+            cursor: pointer;
+            animation: bannerPulse 2s infinite;
+        }
+
+        .sound-activation-banner.show { display: flex; }
+        @keyframes bannerPulse { 0%, 100% { box-shadow: 0 20px 60px rgba(124, 58, 237, 0.6); } 50% { box-shadow: 0 20px 60px rgba(124, 58, 237, 0.8); } }
+
+        .sound-activation-banner i { font-size: 42px; color: #fff; animation: iconBounce 1.2s infinite; }
+        @keyframes iconBounce { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+
+        .sound-activation-banner .banner-text { color: #fff; font-size: 16px; font-weight: 800; text-align: center; }
+        .sound-activation-banner .banner-subtext { color: rgba(255,255,255,0.8); font-size: 12px; font-weight: 600; }
+
+        .modal-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(15px);
+            z-index: 8000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            direction: rtl;
+        }
+
+        .modal-overlay.show { display: flex; }
+
+        .modal-card {
+            background: #121218;
+            border: 1px solid var(--surface-border);
+            border-radius: 20px;
+            width: 90%; max-width: 480px;
+            padding: 25px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-height: 90%;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--surface-border);
+            padding-bottom: 12px;
+        }
+
+        .modal-header h3 { color: #fff; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+        .modal-close { color: #aaa; font-size: 22px; cursor: pointer; transition: 0.2s; }
+        .modal-close:hover { color: #fff; }
+
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-group label { color: #ccc; font-size: 13px; font-weight: 700; }
+
+        .form-input {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--surface-border);
+            border-radius: 10px;
+            padding: 10px 14px;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            transition: 0.3s;
+            direction: ltr;
+            text-align: left;
+        }
+
+        .form-input:focus { border-color: var(--primary-light); background: rgba(255,255,255,0.08); }
+        #serverNameInput { direction: rtl; text-align: right; }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255,255,255,0.03);
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--surface-border);
+            cursor: pointer;
+        }
+
+        .checkbox-group input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
+        .checkbox-group label { color: #e2e8f0; font-size: 13px; font-weight: 600; cursor: pointer; }
+
+        .btn-submit {
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: 800;
+            font-size: 15px;
+            cursor: pointer;
+            transition: 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            font-family: inherit;
+        }
+
+        .btn-submit:hover { background: #6d28d9; }
+        .btn-submit:disabled { opacity: 0.7; cursor: not-allowed; }
+        .btn-submit.editing { background: #f59e0b; color: #000; }
+        .btn-submit.editing:hover { background: #d97706; }
+
+        .admin-servers-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+
+        .admin-server-item {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--surface-border);
+            border-radius: 10px;
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .admin-server-info { display: flex; flex-direction: column; gap: 2px; overflow: hidden; flex-grow: 1; min-width: 0; }
+        .admin-server-title { color: #fff; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+        .admin-server-title .hidden-badge { background: #f59e0b; color: #000; font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 800; }
+        .admin-server-url { color: #888; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: ltr; text-align: left; }
+
+        .admin-server-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+        .btn-delete { color: var(--danger); cursor: pointer; font-size: 20px; padding: 4px; transition: 0.2s; }
+        .btn-delete:hover { transform: scale(1.15); }
+        .btn-edit { color: var(--primary-light); cursor: pointer; font-size: 20px; padding: 4px; transition: 0.2s; }
+        .btn-edit:hover { transform: scale(1.15); color: #fff; }
+
+        .admin-tool-btn {
+            flex: 1;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--surface-border);
+            color: #e2e8f0;
+            padding: 11px 12px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-family: inherit;
+        }
+
+        .admin-tool-btn:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.25); }
+        .admin-tool-btn.danger { color: #fca5a5; border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.08); }
+        .admin-tool-btn.danger:hover { background: rgba(239,68,68,0.18); }
+        .admin-tool-btn.success { color: #6ee7b7; border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.08); }
+        .admin-tool-btn.success:hover { background: rgba(16,185,129,0.18); }
+
+        /* ========== Chat System ========== */
+        .chat-toggle { position: relative; }
+
+        .chat-toggle .unread-badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            background: var(--danger);
+            color: #fff;
+            font-size: 10px;
+            font-weight: 900;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 9px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            border: 2px solid #000;
+            animation: pulseUnread 1.5s infinite;
+            z-index: 5;
+        }
+
+        .chat-toggle .unread-badge.show { display: flex; }
+
+        @keyframes pulseUnread { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+
+        .chat-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            z-index: 6000;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.3s var(--smooth);
+        }
+
+        .chat-backdrop.show { display: block; opacity: 1; }
+
+        .chat-panel {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            right: 0;
+            width: 300px;
+            max-width: 85vw;
+            background: linear-gradient(180deg, #0a0a0f 0%, #12121a 100%);
+            border-left: 1px solid var(--surface-border);
+            z-index: 7000;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(105%);
+            visibility: hidden;
+            transition: transform 0.35s var(--smooth), visibility 0.35s;
+            box-shadow: -10px 0 40px rgba(0,0,0,0.8);
+            direction: rtl;
+            will-change: transform;
+        }
+
+        .chat-panel.open {
+            transform: translateX(0) !important;
+            visibility: visible !important;
+        }
+
+        .chat-header {
+            padding: 14px 16px;
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.25), rgba(124, 58, 237, 0.08));
+            border-bottom: 1px solid var(--surface-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .chat-header-info { display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0; }
+
+        .chat-header-title {
+            color: #fff;
+            font-size: 14px;
+            font-weight: 900;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .chat-header-title .bein-logo {
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 10px;
+            color: #fff;
+            font-weight: 900;
+            letter-spacing: 0.5px;
+        }
+
+        .chat-header-sub {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: #10b981;
+            font-weight: 700;
+        }
+
+        .chat-header-sub .online-dot {
+            width: 7px;
+            height: 7px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #10b981;
+            animation: pulseOnline 2s infinite;
+        }
+
+        @keyframes pulseOnline { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+        .chat-close-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--surface-border);
+            color: #fff;
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: 0.2s;
+            flex-shrink: 0;
+        }
+
+        .chat-close-btn:hover { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+
+        .chat-messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 12px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 9px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--primary);
+        }
+
+        .chat-messages::-webkit-scrollbar { width: 5px; }
+        .chat-messages::-webkit-scrollbar-track { background: transparent; }
+        .chat-messages::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 3px; }
+
+        .chat-empty {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            gap: 8px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .chat-empty i { font-size: 42px; color: var(--primary-light); opacity: 0.5; }
+        .chat-empty p { font-size: 13px; font-weight: 700; }
+
+        .chat-message { display: flex; gap: 7px; animation: msgSlideIn 0.3s var(--smooth); }
+
+        @keyframes msgSlideIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .msg-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 900;
+            font-size: 12px;
+            flex-shrink: 0;
+            text-transform: uppercase;
+        }
+
+        .msg-content { flex-grow: 1; min-width: 0; }
+
+        .msg-header {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 3px;
+            flex-wrap: wrap;
+        }
+
+        .msg-name { color: var(--primary-light); font-size: 12px; font-weight: 900; }
+        .msg-time { color: #666; font-size: 9px; font-weight: 600; }
+
+        .msg-badge-admin {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #000;
+            font-size: 8px;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-weight: 900;
+        }
+
+        .msg-bubble {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--surface-border);
+            padding: 8px 12px;
+            border-radius: 11px;
+            border-top-right-radius: 4px;
+            color: #e2e8f0;
+            font-size: 13px;
+            line-height: 1.55;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+
+        .msg-bubble.me {
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.3), rgba(124, 58, 237, 0.15));
+            border-color: var(--primary-light);
+        }
+
+        .msg-bubble.admin {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.08));
+            border-color: rgba(245, 158, 11, 0.4);
+        }
+
+        .msg-delete-btn {
+            color: #666;
+            cursor: pointer;
+            font-size: 11px;
+            opacity: 0;
+            transition: 0.2s;
+            padding: 2px;
+        }
+
+        .chat-message:hover .msg-delete-btn { opacity: 1; }
+        .msg-delete-btn:hover { color: var(--danger); }
+
+        .chat-input-area {
+            padding: 10px;
+            background: rgba(0,0,0,0.4);
+            border-top: 1px solid var(--surface-border);
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .chat-input-tools { display: flex; gap: 6px; margin-bottom: 7px; }
+
+        .chat-tool-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--surface-border);
+            color: #aaa;
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            transition: 0.2s;
+        }
+
+        .chat-tool-btn:hover {
+            color: var(--primary-light);
+            background: rgba(124, 58, 237, 0.15);
+            border-color: var(--primary-light);
+        }
+
+        .chat-input-row { display: flex; gap: 7px; align-items: flex-end; }
+
+        .chat-textarea {
+            flex-grow: 1;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--surface-border);
+            border-radius: 11px;
+            padding: 9px 12px;
+            color: #fff;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            resize: none;
+            min-height: 40px;
+            max-height: 90px;
+            line-height: 1.4;
+            transition: border-color 0.2s;
+        }
+
+        .chat-textarea:focus { border-color: var(--primary-light); }
+        .chat-textarea::placeholder { color: #666; }
+
+        .chat-send-btn {
+            background: var(--primary);
+            border: none;
+            color: #fff;
+            width: 40px;
+            height: 40px;
+            border-radius: 11px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 17px;
+            transition: 0.2s;
+            flex-shrink: 0;
+        }
+
+        .chat-send-btn:hover { background: #6d28d9; transform: scale(1.05); }
+        .chat-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .emoji-picker {
+            position: absolute;
+            bottom: 100px;
+            left: 10px;
+            right: 10px;
+            background: #1a1a24;
+            border: 1px solid var(--surface-border);
+            border-radius: 13px;
+            padding: 8px;
+            display: none;
+            flex-direction: column;
+            gap: 7px;
+            max-height: 260px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            z-index: 510;
+        }
+
+        .emoji-picker.show { display: flex; }
+
+        .emoji-picker-header {
+            display: flex;
+            gap: 5px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--surface-border);
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+
+        .emoji-picker-header::-webkit-scrollbar { display: none; }
+
+        .emoji-cat-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid transparent;
+            color: #aaa;
+            padding: 5px 9px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+            transition: 0.2s;
+            font-family: inherit;
+        }
+
+        .emoji-cat-btn:hover { color: #fff; }
+        .emoji-cat-btn.active {
+            background: var(--primary);
+            color: #fff;
+            border-color: var(--primary-light);
+        }
+
+        .emoji-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 3px;
+            overflow-y: auto;
+            padding: 4px;
+            max-height: 190px;
+        }
+
+        .emoji-grid::-webkit-scrollbar { width: 5px; }
+        .emoji-grid::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 3px; }
+
+        .emoji-item {
+            font-size: 20px;
+            padding: 5px;
+            cursor: pointer;
+            border-radius: 7px;
+            text-align: center;
+            transition: 0.15s;
+        }
+
+        .emoji-item:hover {
+            background: rgba(124, 58, 237, 0.2);
+            transform: scale(1.2);
+        }
+
+        .online-users-list {
+            padding: 7px 10px;
+            background: rgba(16, 185, 129, 0.05);
+            border-bottom: 1px solid var(--surface-border);
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            flex-shrink: 0;
+        }
+
+        .online-users-list::-webkit-scrollbar { display: none; }
+
+        .online-users-label {
+            color: #10b981;
+            font-size: 10px;
+            font-weight: 800;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .online-user-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            color: #fff;
+            font-size: 9px;
+            font-weight: 900;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            border: 2px solid #10b981;
+            text-transform: uppercase;
+            position: relative;
+        }
+
+        .online-user-avatar::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            right: -2px;
+            width: 7px;
+            height: 7px;
+            background: #10b981;
+            border-radius: 50%;
+            border: 2px solid #12121a;
+        }
+
+        .typing-indicator {
+            padding: 3px 10px;
+            color: #aaa;
+            font-size: 11px;
+            font-style: italic;
+            min-height: 18px;
+            font-weight: 600;
+        }
+
+        .typing-indicator .dot { display: inline-block; animation: typingDot 1.2s infinite; }
+        .typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typingDot { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+        @media (max-width: 768px) {
+            .top-bar { padding: 15px 20px; }
+            .custom-controls { padding: 25px 18px 14px; gap: 10px; }
+            .control-btn { width: 40px; height: 40px; }
+            .sound-activation-banner { padding: 18px 25px; }
+            .chat-panel { width: 300px; max-width: 85vw; }
+            .time-display { font-size: 10px; padding: 3px 9px; }
+            .progress-area { gap: 8px; }
+            .dropdown-menu { min-width: 200px; }
+        }
+
+        /* ========== Channel Picker / Developer Pages ========== */
+        body.app-routing { overflow: auto; background: #050507; }
+        .app-page { display: none; min-height: 100vh; width: 100%; color: #fff; background:
+            radial-gradient(circle at 20% 10%, rgba(124,58,237,.20), transparent 35%),
+            radial-gradient(circle at 80% 20%, rgba(30,64,175,.14), transparent 35%), #050507; }
+        .app-page.active { display: block; }
+        .page-shell { width: min(1180px, 94vw); margin: 0 auto; padding: 34px 0 50px; }
+        .page-head { display:flex; align-items:center; justify-content:space-between; gap:15px; margin-bottom:28px; }
+        .page-title-box { display:flex; align-items:center; gap:12px; }
+        .page-logo { width:48px; height:48px; border-radius:14px; object-fit:cover; background:#161620; border:1px solid var(--surface-border); box-shadow:0 10px 30px rgba(0,0,0,.35); }
+        .page-title { font-size: clamp(23px, 4vw, 36px); font-weight:900; margin:0; }
+        .page-subtitle { color:#8f93a3; font-size:13px; margin-top:4px; }
+        .page-action { display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
+        .page-btn { border:1px solid var(--surface-border); background:rgba(255,255,255,.05); color:#fff; border-radius:12px; padding:11px 15px; font-family:inherit; font-weight:800; cursor:pointer; display:flex; align-items:center; gap:7px; transition:.2s; }
+        .page-btn:hover { background:rgba(255,255,255,.10); border-color:rgba(255,255,255,.22); transform:translateY(-1px); }
+        .page-btn.primary { background:var(--primary); border-color:var(--primary-light); }
+        .page-btn.danger { background:rgba(239,68,68,.09); border-color:rgba(239,68,68,.32); color:#fca5a5; }
+        .channels-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; align-items:stretch; width:100%; max-width:1080px; margin:0 auto; }
+        .channel-card { position:relative; overflow:hidden; min-width:0; background:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.028)); border:1px solid rgba(255,255,255,.10); border-radius:26px; cursor:pointer; transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease; box-shadow:0 18px 46px rgba(0,0,0,.28); min-height:0; isolation:isolate; }
+        .channel-card:hover { transform:translateY(-5px); border-color:rgba(167,139,250,.62); box-shadow:0 26px 60px rgba(0,0,0,.46),0 0 34px rgba(124,58,237,.16); }
+        .channel-card:focus-visible { outline:2px solid var(--primary-light); outline-offset:3px; }
+        .channel-cover-wrap { position:relative; width:100%; aspect-ratio:1 / 1; background:radial-gradient(circle at 50% 30%,rgba(124,58,237,.14),transparent 55%),#0d0d14; overflow:hidden; }
+        .channel-cover { width:100%; height:100%; object-fit:contain; object-position:center; display:block; padding:18px; transition:transform .35s ease,filter .35s ease; }
+        .channel-card:hover .channel-cover { transform:scale(1.045); filter:saturate(1.06) brightness(1.05); }
+        .channel-live-pill { position:absolute; top:14px; right:14px; z-index:2; display:flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:rgba(0,0,0,.62); border:1px solid rgba(255,255,255,.12); backdrop-filter:blur(12px); color:#fff; font-size:10px; font-weight:900; }
+        .channel-live-dot { width:7px; height:7px; border-radius:50%; background:#ef4444; box-shadow:0 0 10px rgba(239,68,68,.75); }
+        .channel-card::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:1; background:linear-gradient(180deg,rgba(255,255,255,.045),transparent 38%,rgba(0,0,0,.18) 72%,rgba(0,0,0,.55)); }
+        .channel-card-body { position:relative; z-index:3; padding:17px 18px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; background:linear-gradient(180deg,rgba(8,8,14,.56),rgba(8,8,14,.96)); }
+        .channel-card-name { font-size:clamp(16px,2vw,21px); font-weight:900; line-height:1.3; }
+        .channel-card-meta { color:#8d91a0; font-size:11px; margin-top:5px; }
+        .channel-play { width:48px; height:48px; border-radius:15px; background:linear-gradient(135deg,var(--primary),#6d28d9); display:grid; place-items:center; font-size:21px; flex-shrink:0; box-shadow:0 10px 26px rgba(124,58,237,.35); border:1px solid rgba(255,255,255,.12); }
+        .empty-state { text-align:center; color:#777; padding:50px 20px; border:1px dashed rgba(255,255,255,.12); border-radius:18px; }
+        .admin-layout { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr); gap:18px; }
+        .panel-card { background:rgba(13,13,19,.84); border:1px solid var(--surface-border); border-radius:18px; padding:20px; box-shadow:0 16px 45px rgba(0,0,0,.3); }
+        .panel-card h3 { font-size:17px; margin-bottom:15px; display:flex; align-items:center; gap:8px; }
+        .panel-card h4 { font-size:14px; margin:18px 0 10px; color:#c8cbd6; }
+        .channel-admin-list { display:flex; flex-direction:column; gap:9px; max-height:560px; overflow:auto; }
+        .channel-admin-item { display:flex; align-items:center; gap:10px; padding:10px; border-radius:12px; border:1px solid var(--surface-border); background:rgba(255,255,255,.03); cursor:pointer; transition:.2s; }
+        .channel-admin-item:hover { background:rgba(255,255,255,.055); border-color:rgba(255,255,255,.18); }
+        .channel-admin-item.active { border-color:var(--primary-light); background:rgba(124,58,237,.12); }
+        .channel-admin-item img { width:58px; height:36px; border-radius:8px; object-fit:cover; background:#111; flex-shrink:0; }
+        .channel-admin-info { flex:1; min-width:0; }
+        .channel-admin-actions { display:flex; align-items:center; gap:5px; flex-shrink:0; }
+        .channel-admin-info strong { display:block; font-size:13px; }
+        .channel-admin-info span { display:block; font-size:10px; color:#777; margin-top:3px; direction:ltr; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .form-actions-row { display:flex; gap:8px; margin-top:10px; }
+        .form-actions-row .page-btn { flex:1; justify-content:center; }
+        .server-list-admin { display:flex; flex-direction:column; gap:8px; max-height:300px; overflow:auto; }
+        .server-admin-row { display:flex; align-items:center; gap:8px; padding:10px; background:rgba(255,255,255,.03); border:1px solid var(--surface-border); border-radius:10px; }
+        .server-admin-row .server-info { flex:1; min-width:0; }
+        .server-admin-row strong { display:block; font-size:12px; }
+        .server-admin-row small { display:block; color:#777; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; direction:ltr; text-align:left; margin-top:3px; }
+        .icon-btn { width:34px; height:34px; border-radius:9px; border:1px solid var(--surface-border); background:rgba(255,255,255,.04); color:#fff; cursor:pointer; }
+        .icon-btn.delete { color:#fca5a5; background:rgba(239,68,68,.06); border-color:rgba(239,68,68,.2); }
+        .icon-btn.edit { color:#c4b5fd; background:rgba(124,58,237,.07); border-color:rgba(167,139,250,.2); }
+        .route-note { color:#7f8494; font-size:11px; line-height:1.7; margin-top:8px; }
+        @media (max-width: 840px) { .admin-layout { grid-template-columns:1fr; } .page-shell { width:min(94vw,680px); padding-top:22px; } .page-head { align-items:flex-start; flex-direction:column; } .page-action { justify-content:flex-start; } }
+        @media (max-width: 760px) { .channels-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; max-width:100%; } .channel-cover { padding:12px; } .channel-card { border-radius:20px; } .channel-card-body { padding:12px 13px 13px; gap:8px; } .channel-card-name { font-size:14px; } .channel-card-meta { font-size:9px; } .channel-play { width:40px; height:40px; border-radius:13px; font-size:17px; } .channel-live-pill { top:9px; right:9px; padding:5px 8px; font-size:9px; } .page-shell { width:94vw; } }
+        @media (max-width: 390px) { .channels-grid { gap:10px; } .channel-cover { padding:9px; } .channel-card-body { padding:10px; } .channel-card-name { font-size:12px; } .channel-card-meta { display:none; } .channel-play { width:36px; height:36px; border-radius:11px; font-size:15px; } }
+    </style>
+</head>
+<body>
+
+    <section class="app-page" id="channelPage">
+        <div class="page-shell">
+            <div class="page-head">
+                <div class="page-title-box">
+                    <img class="page-logo" src="https://i.ibb.co/zhRNTb9p/file-00000000939081f4898837641c4fc69a.png" alt="beIN SPORTS">
+                    <div><h1 class="page-title">القنوات الرئيسية</h1><div class="page-subtitle">اختر القناة للانتقال إلى مشغلها وسيرفراتها المتعددة</div></div>
+                </div>
+            </div>
+            <div class="channels-grid" id="channelsGrid"></div>
+        </div>
+    </section>
+
+    <section class="app-page" id="adminPage">
+        <div class="page-shell">
+            <div class="page-head">
+                <div class="page-title-box">
+                    <img class="page-logo" src="https://i.ibb.co/zhRNTb9p/file-00000000939081f4898837641c4fc69a.png" alt="beIN SPORTS">
+                    <div><h1 class="page-title">لوحة تحكم القنوات الرئيسية</h1><div class="page-subtitle">نشر القنوات وإدارة سيرفراتها ودردشاتها المباشرة</div></div>
+                </div>
+            </div>
+            <div class="admin-layout">
+                <div class="panel-card">
+                    <h3><i class="ph-bold ph-broadcast" style="color:var(--primary-light)"></i> القنوات المنشورة</h3>
+                    <div class="channel-admin-list" id="channelAdminList"></div>
+                </div>
+                <div class="panel-card">
+                    <h3><i class="ph-bold ph-plus-circle" style="color:var(--primary-light)"></i> نشر / تعديل قناة</h3>
+                    <form id="channelForm">
+                        <div class="form-group"><label>اسم القناة</label><input class="form-input" id="channelNameInput" type="text" placeholder="مثال: beIN SPORT 1" required></div>
+                        <div class="form-group" style="margin-top:8px"><label>رابط صورة القناة</label><input class="form-input" id="channelImageInput" type="url" placeholder="https://.../channel.png" required></div>
+                        <div class="form-actions-row"><button class="page-btn primary" type="submit" id="saveChannelBtn"><i class="ph-bold ph-cloud-arrow-up"></i> نشر القناة</button><button class="page-btn" type="button" id="resetChannelBtn">تفريغ</button></div>
+                    </form>
+                    <h4><i class="ph-bold ph-broadcast"></i> سيرفرات القناة المحددة</h4>
+                    <div id="selectedChannelLabel" class="route-note">اختر قناة من القائمة لإدارة سيرفراتها.</div>
+                    <form id="channelServerForm" style="margin-top:10px;display:none;">
+                        <div class="form-group"><label>اسم السيرفر / الجودة</label><input class="form-input" id="channelServerName" type="text" placeholder="جودة HD"></div>
+                        <div class="form-group" style="margin-top:8px"><label>رابط البث</label><input class="form-input" id="channelServerUrl" type="url" placeholder="https://.../live.m3u8"></div>
+                        <div class="form-actions-row"><button class="page-btn primary" type="submit"><i class="ph-bold ph-paper-plane-tilt"></i> إضافة سيرفر</button></div>
+                    </form>
+                    <div class="server-list-admin" id="channelServerList" style="margin-top:10px"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="fullscreen-container" id="fullscreenContainer">
+        <div class="player-wrapper" id="playerWrapper">
+            <div class="player-ambient"></div>
+            <video id="player" class="fit-contain" playsinline autoplay preload="auto"></video>
+
+            <div class="sound-activation-banner" id="soundBanner">
+                <i class="ph-fill ph-speaker-high"></i>
+                <div class="banner-text">اضغط في أي مكان لتفعيل الصوت</div>
+                <div class="banner-subtext">المتصفح يمنع التشغيل التلقائي مع الصوت</div>
+            </div>
+
+            <div class="center-status" id="centerStatus">
+                <i class="ph-bold ph-spinner ph-spin"></i>
+                <span id="statusText">جاري الاتصال بالسيرفر...</span>
+            </div>
+
+            <div class="top-bar" id="topBar">
+                <a href="?page=channels" class="back-btn" title="رجوع إلى القنوات">
+                    <i class="ph-bold ph-arrow-right"></i>
+                </a>
+                <div class="viewers-badge" id="viewersBadge" title="عدد المشاهدين الآن">
+                    <i class="ph-fill ph-users-three"></i>
+                    <span id="viewersCount">0</span> مشاهد
+                </div>
+                <div class="servers-container" id="serversContainer">
+                    <div class="server-tab"><i class="ph-bold ph-spinner ph-spin"></i> جاري جلب السيرفرات...</div>
+                </div>
+            </div>
+
+            <div class="custom-controls" id="customControls">
+                <div class="progress-area">
+                    <div class="progress-bar" id="progressBar">
+                        <div class="progress-buffer" id="progressBuffer"></div>
+                        <div class="progress-fill" id="progressFill"></div>
+                        <div class="progress-thumb" id="progressThumb"></div>
+                    </div>
+                    <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
+                </div>
+
+                <div class="controls-row">
+                    <div class="controls-group">
+                        <button class="control-btn" id="playPauseBtn"><i class="ph-fill ph-pause"></i></button>
+                        <button class="control-btn" id="muteBtn"><i class="ph-fill ph-speaker-high"></i></button>
+                        <div class="live-badge"><i class="ph-fill ph-circle"></i> مباشر</div>
+                    </div>
+
+                    <div class="controls-group">
+                        <div class="chat-toggle" id="chatToggleWrapper">
+                            <button class="control-btn" id="chatToggleBtn" title="محادثة beIN SPORTS 1">
+                                <i class="ph-fill ph-chats-circle"></i>
+                            </button>
+                            <span class="unread-badge" id="unreadBadge">0</span>
+                        </div>
+
+                        <div class="menu-container">
+                            <div id="qualityMenu" class="dropdown-menu">
+                                <div class="dropdown-item quality-display" id="qualityDisplay">
+                                    <i class="ph-bold ph-spinner ph-spin"></i> جاري فحص الجودة...
+                                </div>
+                            </div>
+                            <button class="control-btn" id="qualityBtn" title="الجودة الحالية">
+                                <i class="ph-fill ph-gear"></i>
+                            </button>
+                        </div>
+
+                        <div class="menu-container">
+                            <div id="settingsMenu" class="dropdown-menu">
+                                <div class="dropdown-section-title">أبعاد الشاشة</div>
+                                <div class="dropdown-item fit-option" id="ratioFillBtn" data-fit="fill">
+                                    <i class="ph-bold ph-arrows-out-cardinal"></i> تمدد كامل (بدون فراغ أو قص)
+                                </div>
+                                <div class="dropdown-item fit-option" id="ratioCoverBtn" data-fit="cover">
+                                    <i class="ph-bold ph-corners-out"></i> تعبئة الشاشة (قد يقص الأطراف)
+                                </div>
+                                <div class="dropdown-item fit-option" id="ratioContainBtn" data-fit="contain">
+                                    <i class="ph-bold ph-rectangle"></i> الأبعاد الأصلية (بدون قص)
+                                </div>
+                            </div>
+                            <button class="control-btn" id="settingsBtn" title="الإعدادات">
+                                <i class="ph-bold ph-sliders-horizontal"></i>
+                            </button>
+                        </div>
+
+                        <button class="control-btn" id="fullscreenBtn" title="تكبير/تصغير">
+                            <i class="ph-bold ph-corners-out"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-backdrop" id="chatBackdrop"></div>
+
+        <div class="chat-panel" id="chatPanel">
+            <div class="chat-header">
+                <div class="chat-header-info">
+                    <div class="chat-header-title">
+                        <span class="bein-logo">beIN SPORTS</span>
+                        <span>الدردشة المباشرة</span>
+                    </div>
+                    <div class="chat-header-sub">
+                        <span class="online-dot"></span>
+                        <span id="chatOnlineCount">0</span> متصل الآن
+                    </div>
+                </div>
+                <button class="chat-close-btn" id="chatCloseBtn">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+
+            <div class="online-users-list" id="onlineUsersList">
+                <div class="online-users-label">
+                    <i class="ph-fill ph-users"></i>
+                    <span>المتصلون:</span>
+                </div>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="chat-empty">
+                    <i class="ph-duotone ph-chat-circle-dots"></i>
+                    <p>لا توجد رسائل بعد</p>
+                    <p style="font-size:11px; color:#555;">كن أول من يبدأ المحادثة!</p>
+                </div>
+            </div>
+
+            <div class="typing-indicator" id="typingIndicator"></div>
+
+            <div class="chat-input-area">
+                <div class="emoji-picker" id="emojiPicker">
+                    <div class="emoji-picker-header" id="emojiPickerHeader"></div>
+                    <div class="emoji-grid" id="emojiGrid"></div>
+                </div>
+
+                <div class="chat-input-tools">
+                    <button class="chat-tool-btn" id="emojiBtn" title="إيموجي">
+                        <i class="ph-fill ph-smiley"></i>
+                    </button>
+                    <button class="chat-tool-btn" id="clearMyMsgsBtn" title="حذف رسائلي">
+                        <i class="ph-fill ph-trash"></i>
+                    </button>
+                </div>
+                <div class="chat-input-row">
+                    <textarea id="chatInput" class="chat-textarea" placeholder="اكتب رسالتك هنا... اضغط Enter للإرسال" rows="1" maxlength="500"></textarea>
+                    <button class="chat-send-btn" id="chatSendBtn">
+                        <i class="ph-fill ph-paper-plane-tilt"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.3.0/firebase-app.js";
+        import { getDatabase, ref, push, onValue, remove, onDisconnect, set, update, query, orderByChild, limitToLast, get } from "https://www.gstatic.com/firebasejs/11.3.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDegZhYj3T0eOqM9szvHh62psoJodqfO-Q",
+            authDomain: "know-db3a2.firebaseapp.com",
+            databaseURL: "https://know-db3a2-default-rtdb.firebaseio.com",
+            projectId: "know-db3a2",
+            storageBucket: "know-db3a2.firebasestorage.app",
+            messagingSenderId: "72511239354",
+            appId: "1:72511239354:web:fafaa6f30b042a048ebe83",
+            measurementId: "G-NXHRWYFZWD"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const pageParam = urlParams.get('page');
+        const channelId = urlParams.get('channel') || '';
+        const appMode = pageParam === 'admin' ? 'admin' : (channelId ? 'player' : 'channels');
+        const chatRoomId = channelId ? `chat_${channelId}` : 'chat_browse';
+
+        const player = document.getElementById('player');
+        const playerWrapper = document.getElementById('playerWrapper');
+        const centerStatus = document.getElementById('centerStatus');
+        const soundBanner = document.getElementById('soundBanner');
+        const fullscreenContainer = document.getElementById('fullscreenContainer');
+
+        let hlsPlayer = null, tsPlayer = null;
+        let liveControlsVisible = true, liveHideTimeout = null;
+        let currentStreamUrl = "", loadedServers = [], currentHideViewers = false;
+        let isSoundBlocked = false;
+        let wakeLock = null, lastInteractionTime = 0;
+        let autoFullscreenDone = false;
+        let currentViewerCount = 0;
+        const sessionId = crypto?.randomUUID ? crypto.randomUUID() : 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+
+        let myUsername = sessionStorage.getItem('chat_username');
+        if (!myUsername) {
+            const adjectives = ['سريع', 'ذكي', 'قوي', 'شجاع', 'نشط', 'حالم', 'متميز', 'محترف', 'مبدع', 'رائع', 'مميز', 'نجم', 'بطل', 'هداف'];
+            const nouns = ['الأسد', 'النمر', 'الصقر', 'الفهد', 'الذئب', 'النسر', 'الغزال', 'الفارس', 'القرش', 'البرق', 'الرعد', 'الصقر'];
+            myUsername = `${adjectives[Math.floor(Math.random() * adjectives.length)]}_${nouns[Math.floor(Math.random() * nouns.length)]}_${Math.floor(Math.random() * 999)}`;
+            sessionStorage.setItem('chat_username', myUsername);
+        }
+
+        // ================= VIDEO FIT MODES =================
+        let currentFitMode = localStorage.getItem('video_fit_mode') || 'contain';
+
+        function applyFitMode(mode, save = true) {
+            currentFitMode = mode;
+            player.classList.remove('fit-cover', 'fit-contain', 'fit-fill');
+            player.classList.add(`fit-${mode}`);
+            document.querySelectorAll('.fit-option').forEach(item => {
+                item.classList.toggle('selected', item.dataset.fit === mode);
+            });
+            if (save) {
+                try { localStorage.setItem('video_fit_mode', mode); } catch(e) {}
+            }
+        }
+
+        document.getElementById('ratioFillBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            applyFitMode('fill');
+            closeAllMenus();
+        });
+
+        document.getElementById('ratioCoverBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            applyFitMode('cover');
+            closeAllMenus();
+        });
+
+        document.getElementById('ratioContainBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            applyFitMode('contain');
+            closeAllMenus();
+        });
+
+        // ================= FULLSCREEN =================
+        function isFullscreen() {
+            return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
+        }
+
+        function updateFullscreenBtn() {
+            const btn = document.getElementById('fullscreenBtn');
+            if (btn) btn.innerHTML = isFullscreen() ? '<i class="ph-bold ph-corners-in"></i>' : '<i class="ph-bold ph-corners-out"></i>';
+        }
+
+        function enterFullscreen() {
+            const elem = fullscreenContainer;
+            const req = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.mozRequestFullScreen || elem.msRequestFullscreen;
+            if (req) {
+                return Promise.resolve().then(() => req.call(elem)).catch(() => {
+                    if (player.webkitEnterFullscreen) return Promise.resolve().then(() => player.webkitEnterFullscreen());
+                    throw new Error('fs-fail');
+                });
+            }
+            if (player.webkitEnterFullscreen) return Promise.resolve().then(() => player.webkitEnterFullscreen());
+            return Promise.reject(new Error('no-fs'));
+        }
+
+        function exitFullscreen() {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+            if (exit) return Promise.resolve(exit.call(document)).catch(() => {});
+            return Promise.resolve();
+        }
+
+        function onFullscreenSuccess() {
+            autoFullscreenDone = true;
+            if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => {});
+            updateFullscreenBtn();
+        }
+
+        document.getElementById('fullscreenBtn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+                if (!isFullscreen()) {
+                    await enterFullscreen();
+                    onFullscreenSuccess();
+                } else {
+                    await exitFullscreen();
+                    if (screen.orientation?.unlock) screen.orientation.unlock();
+                    updateFullscreenBtn();
+                }
+            } catch (err) {}
+        });
+
+        ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(evt =>
+            document.addEventListener(evt, () => {
+                if (!isFullscreen() && screen.orientation?.unlock) screen.orientation.unlock();
+                updateFullscreenBtn();
+            })
+        );
+
+        // ================= WAKE LOCK & AUTOPLAY =================
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    if (wakeLock) await wakeLock.release().catch(() => {});
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            } catch (err) {}
+        }
+
+        function releaseWakeLock() {
+            if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                requestWakeLock();
+                if (player.paused && currentStreamUrl) {
+                    hlsPlayer?.startLoad?.();
+                    player.play().catch(() => playStream(currentStreamUrl));
+                }
+            } else releaseWakeLock();
+        });
+
+        function activateSound() {
+            if (!isSoundBlocked) return;
+            isSoundBlocked = false;
+            player.muted = false;
+            player.volume = 1.0;
+            soundBanner.classList.remove('show');
+            document.getElementById('muteBtn').innerHTML = '<i class="ph-fill ph-speaker-high"></i>';
+            if (player.paused) player.play().catch(() => {});
+            document.removeEventListener('click', autoUnmute);
+            document.removeEventListener('touchstart', autoUnmute);
+        }
+
+        function autoUnmute() { activateSound(); }
+        soundBanner.addEventListener('click', activateSound);
+
+        async function tryAutoplayWithSound() {
+            try {
+                player.muted = false;
+                player.volume = 1.0;
+                await player.play();
+                document.getElementById('muteBtn').innerHTML = '<i class="ph-fill ph-speaker-high"></i>';
+                requestWakeLock();
+            } catch (err) {
+                player.muted = true;
+                player.play().then(() => {
+                    isSoundBlocked = true;
+                    soundBanner.classList.add('show');
+                    document.getElementById('muteBtn').innerHTML = '<i class="ph-fill ph-speaker-slash"></i>';
+                    requestWakeLock();
+                    document.addEventListener('click', autoUnmute, { once: true });
+                    document.addEventListener('touchstart', autoUnmute, { once: true });
+                }).catch(() => showStatus('<i class="ph-bold ph-play-circle"></i>', 'اضغط لتشغيل البث'));
+            }
+        }
+
+        // ================= STABILITY ENGINE =================
+        const stability = {
+            attempts: 0,
+            silentFixes: 0,
+            lastProgress: Date.now(),
+            reconnectTimer: null,
+            failing: false
+        };
+        let bufferingTimer = null;
+        let lastCurrentTime = 0;
+
+        function markProgress() { stability.lastProgress = Date.now(); }
+
+        function clearReconnectTimer() {
+            if (stability.reconnectTimer) { clearTimeout(stability.reconnectTimer); stability.reconnectTimer = null; }
+        }
+
+        function resetStability(hideOverlay = true) {
+            stability.attempts = 0;
+            stability.silentFixes = 0;
+            stability.failing = false;
+            stability.lastProgress = Date.now();
+            clearReconnectTimer();
+            clearTimeout(bufferingTimer);
+            if (hideOverlay) hideStatus();
+        }
+
+        function currentEngine() { return hlsPlayer ? 'hls' : (tsPlayer ? 'mpegts' : 'native'); }
+
+        function silentRecover() {
+            const eng = currentEngine();
+            try {
+                if (eng === 'hls' && hlsPlayer) {
+                    hlsPlayer.startLoad();
+                } else if (eng === 'mpegts' && currentStreamUrl) {
+                    createTsPlayer(currentStreamUrl);
+                } else if (eng === 'native' && currentStreamUrl) {
+                    player.load();
+                    player.play().catch(() => {});
+                }
+            } catch (e) {}
+        }
+
+        function hardRestart() {
+            const url = currentStreamUrl;
+            if (!url) return;
+            if (hlsPlayer) { try { hlsPlayer.destroy(); } catch(e){} hlsPlayer = null; }
+            if (tsPlayer) { try { tsPlayer.destroy(); } catch(e){} tsPlayer = null; }
+            playStream(url);
+        }
+
+        function scheduleRecovery(silent) {
+            if (stability.reconnectTimer) return;
+            stability.attempts++;
+            const attempt = stability.attempts;
+
+            if (silent && attempt <= 2) {
+                silentRecover();
+                stability.reconnectTimer = setTimeout(() => { stability.reconnectTimer = null; }, 1200);
+            } else {
+                showStatus('<i class="ph-bold ph-spinner ph-spin"></i>', `انقطع البث.. إعادة الاتصال (${attempt})`);
+                const delay = Math.min(1500 + attempt * 1000, 8000);
+                stability.reconnectTimer = setTimeout(() => {
+                    stability.reconnectTimer = null;
+                    hardRestart();
+                }, delay);
+            }
+        }
+
+        setInterval(() => {
+            if (!currentStreamUrl || player.paused || document.hidden) return;
+            const stalledFor = Date.now() - stability.lastProgress;
+            if (stalledFor < 7000) return;
+
+            if (stability.silentFixes < 2) {
+                stability.silentFixes++;
+                silentRecover();
+            } else {
+                stability.silentFixes = 0;
+                scheduleRecovery(false);
+            }
+            stability.lastProgress = Date.now();
+        }, 3000);
+
+        player.addEventListener('timeupdate', () => {
+            if (player.currentTime !== lastCurrentTime) {
+                lastCurrentTime = player.currentTime;
+                markProgress();
+            }
+        });
+        player.addEventListener('progress', markProgress);
+
+        player.addEventListener('waiting', () => {
+            clearTimeout(bufferingTimer);
+            bufferingTimer = setTimeout(() => {
+                showStatus('<i class="ph-bold ph-spinner ph-spin"></i>', 'جاري التخزين المؤقت...');
+            }, 1200);
+        });
+        ['playing', 'canplay', 'play'].forEach(ev => player.addEventListener(ev, () => {
+            clearTimeout(bufferingTimer);
+        }));
+
+        player.addEventListener('playing', () => {
+            resetStability(true);
+            requestWakeLock();
+        });
+
+        // ================= FIREBASE SYNC =================
+        function initFirebaseSync() {
+            onValue(ref(db, `channels/${channelId}`), (snapshot) => {
+                const channel = snapshot.val();
+                const label = document.querySelector('.live-badge');
+                if (label && channel?.name) label.innerHTML = '<i class="ph-fill ph-circle"></i> ' + escapeHtml(channel.name);
+                document.title = channel?.name ? `${channel.name} - Loop Live` : 'Loop Live';
+            });
+            onValue(ref(db, `servers/${channelId}`), (snapshot) => {
+                const data = snapshot.val();
+                loadedServers = data ? Object.keys(data).map(k => ({ id: k, ...data[k] })) : [];
+                renderServersUI(loadedServers);
+            });
+
+            onValue(ref(db, `settings/${channelId}`), (snapshot) => {
+                const s = snapshot.val();
+                const chatToggle = document.getElementById('chatToggleWrapper');
+                if (s?.hideChat) {
+                    if (chatToggle) chatToggle.style.display = 'none';
+                    if (isChatOpen()) closeChat();
+                } else {
+                    if (chatToggle) chatToggle.style.display = '';
+                }
+            });
+
+            initViewerPresence();
+        }
+
+        function initViewerPresence() {
+            const viewerRef = ref(db, `viewers/${channelId}/${sessionId}`);
+            set(viewerRef, { joinedAt: Date.now() }).catch(() => {});
+            onDisconnect(viewerRef).remove();
+
+            onValue(ref(db, `viewers/${channelId}`), (snapshot) => {
+                const data = snapshot.val();
+                currentViewerCount = data ? Object.keys(data).length : 0;
+                updateViewersBadge();
+            });
+        }
+
+        function updateViewersBadge() {
+            const badge = document.getElementById('viewersBadge');
+            const countEl = document.getElementById('viewersCount');
+            if (!badge || !countEl) return;
+            badge.style.display = currentHideViewers ? 'none' : 'flex';
+            countEl.textContent = currentViewerCount.toLocaleString('ar-EG');
+        }
+
+        function renderServersUI(servers) {
+            const container = document.getElementById('serversContainer');
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (servers.length > 0) {
+                servers.forEach((server, index) => {
+                    const btn = document.createElement('div');
+                    btn.className = 'server-tab';
+                    btn.innerHTML = `<i class="ph-bold ph-broadcast"></i> ${escapeHtml(server.name)}`;
+
+                    btn.onclick = () => {
+                        document.querySelectorAll('.server-tab').forEach(el => el.classList.remove('active'));
+                        btn.classList.add('active');
+                        currentHideViewers = !!server.hideViewers;
+                        updateViewersBadge();
+                        playStream(server.url);
+                    };
+                    container.appendChild(btn);
+
+                    if ((index === 0 && !currentStreamUrl) || server.url === currentStreamUrl) {
+                        btn.classList.add('active');
+                        currentHideViewers = !!server.hideViewers;
+                        updateViewersBadge();
+                        if (index === 0 && !currentStreamUrl) playStream(server.url);
+                    }
+                });
+            } else {
+                container.innerHTML = '<div class="server-tab"><i class="ph-bold ph-warning"></i> لا توجد جودات</div>';
+                showStatus('<i class="ph-bold ph-warning"></i>', 'لا توجد سيرفرات بث مضافة لهذه القناة');
+            }
+        }
+
+        // ================= UI HELPERS =================
+        function showStatus(iconHTML, text, autoHide = false) {
+            if (!centerStatus) return;
+            centerStatus.innerHTML = `${iconHTML} <span>${text}</span>`;
+            centerStatus.classList.add('show');
+            if (autoHide) setTimeout(() => centerStatus.classList.remove('show'), 2500);
+        }
+
+        function hideStatus() { centerStatus?.classList.remove('show'); }
+
+        function closeAllMenus() {
+            document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+        }
+
+        function toggleMenu(menuId, e) {
+            if (e) e.stopPropagation();
+            const targetMenu = document.getElementById(menuId);
+            if (!targetMenu) return;
+            const isShowing = targetMenu.classList.contains('show');
+            closeAllMenus();
+            if (!isShowing) targetMenu.classList.add('show');
+            if (menuId === 'settingsMenu') {
+                document.querySelectorAll('.fit-option').forEach(item => {
+                    item.classList.toggle('selected', item.dataset.fit === currentFitMode);
+                });
+            }
+        }
+
+        document.getElementById('qualityBtn').addEventListener('click', (e) => {
+            toggleMenu('qualityMenu', e);
+            updateQualityDisplay();
+        });
+
+        document.getElementById('settingsBtn').addEventListener('click', (e) => toggleMenu('settingsMenu', e));
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.menu-container')) {
+                closeAllMenus();
+            }
+        });
+
+        function updateQualityDisplay() {
+            const display = document.getElementById('qualityDisplay');
+            if (!display || !player) return;
+            const h = player.videoHeight;
+            if (h > 0) {
+                let q = h >= 1080 ? '1080p FHD' : h >= 720 ? '720p HD' : h >= 480 ? '480p SD' : h + 'p';
+                display.innerHTML = `<i class="ph-bold ph-check-circle" style="color: #10b981;"></i> الدقة: ${q}`;
+            } else {
+                display.innerHTML = `<i class="ph-bold ph-spinner ph-spin"></i> فحص الجودة...`;
+            }
+        }
+
+        player.addEventListener('loadedmetadata', updateQualityDisplay);
+
+        // ================= PROGRESS BAR =================
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+        const progressBuffer = document.getElementById('progressBuffer');
+        const progressThumb = document.getElementById('progressThumb');
+        const timeDisplay = document.getElementById('timeDisplay');
+        let isSeeking = false;
+
+        function formatTime(sec) {
+            if (!isFinite(sec) || sec < 0 || isNaN(sec)) sec = 0;
+            sec = Math.floor(sec);
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            return `${m}:${String(s).padStart(2,'0')}`;
+        }
+
+        function isLiveDuration() {
+            return !isFinite(player.duration) || player.duration <= 0;
+        }
+
+        function getLiveRange() {
+            try {
+                if (player.seekable && player.seekable.length > 0) {
+                    return {
+                        start: player.seekable.start(0),
+                        end: player.seekable.end(player.seekable.length - 1)
+                    };
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        function updateProgress() {
+            if (isSeeking) return;
+            let pct = 0;
+
+            if (!isLiveDuration()) {
+                const dur = player.duration || 0;
+                if (dur > 0) {
+                    pct = (player.currentTime / dur) * 100;
+                    timeDisplay.textContent = `${formatTime(player.currentTime)} / ${formatTime(dur)}`;
+                }
+            } else {
+                const range = getLiveRange();
+                if (range && range.end > range.start) {
+                    const total = range.end - range.start;
+                    const pos = Math.max(0, Math.min(total, player.currentTime - range.start));
+                    pct = (pos / total) * 100;
+                    timeDisplay.textContent = `${formatTime(pos)} / ${formatTime(total)}`;
+                } else {
+                    pct = 100;
+                    timeDisplay.innerHTML = `<span class="live-tag">● مباشر</span>`;
+                }
+            }
+
+            pct = Math.max(0, Math.min(100, pct));
+            progressFill.style.width = pct + '%';
+            progressThumb.style.left = pct + '%';
+        }
+
+        function updateBuffer() {
+            try {
+                if (player.buffered && player.buffered.length > 0) {
+                    const bufEnd = player.buffered.end(player.buffered.length - 1);
+                    let pct = 0;
+                    if (!isLiveDuration() && player.duration > 0) {
+                        pct = (bufEnd / player.duration) * 100;
+                    } else {
+                        const range = getLiveRange();
+                        if (range && range.end > range.start) {
+                            pct = ((bufEnd - range.start) / (range.end - range.start)) * 100;
+                        } else pct = 100;
+                    }
+                    progressBuffer.style.width = Math.max(0, Math.min(100, pct)) + '%';
+                }
+            } catch (e) {}
+        }
+
+        function seekFromEvent(e) {
+            const rect = progressBar.getBoundingClientRect();
+            let ratio = (e.clientX - rect.left) / rect.width;
+            ratio = Math.max(0, Math.min(1, ratio));
+
+            if (!isLiveDuration() && player.duration > 0) {
+                player.currentTime = ratio * player.duration;
+            } else {
+                const range = getLiveRange();
+                if (range) {
+                    player.currentTime = range.start + ratio * (range.end - range.start);
+                }
+            }
+            updateProgress();
+        }
+
+        progressBar.addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            isSeeking = true;
+            progressBar.classList.add('dragging');
+            try { progressBar.setPointerCapture(e.pointerId); } catch (err) {}
+            seekFromEvent(e);
+        });
+
+        progressBar.addEventListener('pointermove', (e) => {
+            if (isSeeking) seekFromEvent(e);
+        });
+
+        progressBar.addEventListener('pointerup', () => {
+            isSeeking = false;
+            progressBar.classList.remove('dragging');
+        });
+
+        player.addEventListener('timeupdate', updateProgress);
+        player.addEventListener('progress', updateBuffer);
+
+        // ================= CONTROLS VIEW OVERLAY =================
+        function toggleLiveControls(e) {
+            if (e.target.closest('.custom-controls, .top-bar, .dropdown-menu, .sound-activation-banner, .chat-panel, .chat-backdrop')) return;
+            const now = Date.now();
+            if (now - lastInteractionTime < 250) return;
+            lastInteractionTime = now;
+
+            liveControlsVisible = !liveControlsVisible;
+            if (liveControlsVisible) {
+                playerWrapper.classList.remove('idle');
+                resetLiveTimer();
+            } else {
+                playerWrapper.classList.add('idle');
+                clearTimeout(liveHideTimeout);
+                closeAllMenus();
+            }
+        }
+
+        function resetLiveTimer() {
+            if (!liveControlsVisible) return;
+            clearTimeout(liveHideTimeout);
+            liveHideTimeout = setTimeout(() => {
+                const isAnyOpen = Array.from(document.querySelectorAll('.dropdown-menu')).some(m => m.classList.contains('show'));
+                const chatOpen = isChatOpen();
+                if (!player.paused && !isAnyOpen && !isSoundBlocked && !chatOpen) {
+                    playerWrapper.classList.add('idle');
+                    liveControlsVisible = false;
+                }
+            }, 3500);
+        }
+
+        function setupLivePlayer() {
+            const btnPlay = document.getElementById('playPauseBtn');
+            const btnMute = document.getElementById('muteBtn');
+
+            btnPlay.addEventListener('click', () => {
+                if (player.paused) { player.play(); requestWakeLock(); }
+                else { player.pause(); releaseWakeLock(); }
+            });
+
+            player.onplay = () => {
+                btnPlay.innerHTML = '<i class="ph-fill ph-pause"></i>';
+                resetLiveTimer(); hideStatus(); updateQualityDisplay(); requestWakeLock();
+            };
+
+            player.onpause = () => {
+                btnPlay.innerHTML = '<i class="ph-fill ph-play"></i>';
+                playerWrapper.classList.remove('idle'); releaseWakeLock();
+            };
+
+            player.onplaying = () => { hideStatus(); updateQualityDisplay(); updateProgress(); };
+
+            btnMute.addEventListener('click', () => {
+                player.muted = !player.muted;
+                btnMute.innerHTML = player.muted ? '<i class="ph-fill ph-speaker-slash"></i>' : '<i class="ph-fill ph-speaker-high"></i>';
+                if (!player.muted) { isSoundBlocked = false; soundBanner.classList.remove('show'); }
+            });
+
+            playerWrapper.addEventListener('click', toggleLiveControls);
+            playerWrapper.addEventListener('mousemove', resetLiveTimer);
+            playerWrapper.addEventListener('touchstart', resetLiveTimer);
+        }
+
+        // ================= STREAM PLAYBACK =================
+        function detectStreamType(url) {
+            const clean = (url || '').toLowerCase().split(/[?#]/)[0];
+            if (clean.endsWith('.ts') || clean.endsWith('.m2ts') || clean.endsWith('.flv')) return 'mpegts';
+            if (clean.endsWith('.mp4') || clean.endsWith('.webm') || clean.endsWith('.ogg')) return 'native';
+            return 'hls';
+        }
+
+        function destroyCurrentPlayer() {
+            if (hlsPlayer) { try { hlsPlayer.destroy(); } catch(e){} hlsPlayer = null; }
+            if (tsPlayer) { try { tsPlayer.destroy(); } catch(e){} tsPlayer = null; }
+            if (player) { player.pause(); player.removeAttribute('src'); player.load(); }
+            releaseWakeLock();
+        }
+
+        function createHlsPlayer() {
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                backBufferLength: 10,
+                maxBufferLength: 10,
+                maxMaxBufferLength: 30,
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 6,
+                startLevel: -1,
+                manifestLoadingTimeOut: 10000,
+                levelLoadingTimeOut: 10000,
+                fragLoadingTimeOut: 20000,
+                autoStartLoad: true
+            });
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => tryAutoplayWithSound());
+            hls.on(Hls.Events.LEVEL_LOADED, markProgress);
+            hls.on(Hls.Events.FRAG_BUFFERED, markProgress);
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (!data.fatal) return;
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    try { hls.startLoad(); } catch(e){}
+                    scheduleRecovery(true);
+                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                    try { hls.recoverMediaError(); } catch(e){}
+                    markProgress();
+                } else {
+                    scheduleRecovery(false);
+                }
+            });
+
+            return hls;
+        }
+
+        const mpegtsSupported = typeof mpegts !== 'undefined' && mpegts.getFeatureList && mpegts.getFeatureList().mseLivePlayback;
+
+        function createTsPlayer(url) {
+            if (!mpegtsSupported) {
+                showStatus('<i class="ph-bold ph-warning-circle"></i>', 'المشغل غير مدعوم على جهازك');
+                return;
+            }
+            if (hlsPlayer) { try { hlsPlayer.destroy(); } catch(e){} hlsPlayer = null; }
+            if (tsPlayer) { try { tsPlayer.destroy(); } catch(e){} tsPlayer = null; }
+            player.pause(); player.removeAttribute('src');
+
+            tsPlayer = mpegts.createPlayer({
+                type: 'mpegts',
+                isLive: true,
+                url: url
+            }, {
+                enableWorker: true,
+                liveBufferLatencyChasing: true,
+                lazyLoad: false,
+                hasAudio: true,
+                hasVideo: true
+            });
+
+            tsPlayer.on(mpegts.Events.ERROR, () => {
+                if (!currentStreamUrl) return;
+                scheduleRecovery(stability.attempts < 2);
+            });
+
+            tsPlayer.on(mpegts.Events.MEDIA_INFO, markProgress);
+
+            try {
+                tsPlayer.attachMediaElement(player);
+                tsPlayer.load();
+                tryAutoplayWithSound();
+            } catch (e) {
+                scheduleRecovery(false);
+            }
+        }
+
+        function playStream(url) {
+            if (!url) return;
+            currentStreamUrl = url;
+            resetStability(false);
+            showStatus('<i class="ph-bold ph-spinner ph-spin"></i>', 'جاري الاتصال بالسيرفر...');
+            liveControlsVisible = true;
+            playerWrapper.classList.remove('idle');
+
+            const streamType = detectStreamType(url);
+
+            if (streamType === 'mpegts') {
+                createTsPlayer(url);
+            } else if (streamType === 'hls' && typeof Hls !== 'undefined' && Hls.isSupported()) {
+                if (tsPlayer) { try { tsPlayer.destroy(); } catch(e){} tsPlayer = null; }
+                if (!hlsPlayer) hlsPlayer = createHlsPlayer();
+                try {
+                    if (hlsPlayer.media !== player) hlsPlayer.attachMedia(player);
+                    hlsPlayer.loadSource(url);
+                    hlsPlayer.startLoad();
+                } catch (e) {
+                    scheduleRecovery(false);
+                }
+                tryAutoplayWithSound();
+            } else {
+                destroyCurrentPlayer();
+                player.src = url;
+                tryAutoplayWithSound();
+            }
+        }
+
+        player.addEventListener('error', () => {
+            if (!currentStreamUrl) return;
+            if (detectStreamType(currentStreamUrl) === 'native') {
+                scheduleRecovery(false);
+            }
+        });
+
+        // ================= CHAT SYSTEM =================
+        const chatMessagesEl = document.getElementById('chatMessages');
+        const chatInputEl = document.getElementById('chatInput');
+        const chatSendBtn = document.getElementById('chatSendBtn');
+        const chatToggleBtn = document.getElementById('chatToggleBtn');
+        const chatCloseBtn = document.getElementById('chatCloseBtn');
+        const chatPanel = document.getElementById('chatPanel');
+        const chatBackdrop = document.getElementById('chatBackdrop');
+        const unreadBadge = document.getElementById('unreadBadge');
+        const typingIndicator = document.getElementById('typingIndicator');
+        const emojiPicker = document.getElementById('emojiPicker');
+        const emojiGrid = document.getElementById('emojiGrid');
+        const emojiPickerHeader = document.getElementById('emojiPickerHeader');
+        const onlineUsersList = document.getElementById('onlineUsersList');
+        const chatOnlineCount = document.getElementById('chatOnlineCount');
+
+        let unreadCount = 0;
+        let lastTypingTime = 0;
+        let typingTimeout = null;
+        let messagesUnsub = null;
+
+        function openChat() {
+            chatPanel.classList.add('open');
+            chatBackdrop.classList.add('show');
+            chatToggleBtn.classList.add('active');
+            chatPanel.style.visibility = 'visible';
+            chatPanel.style.transform = 'translateX(0)';
+            chatBackdrop.style.display = 'block';
+
+            unreadCount = 0;
+            unreadBadge.classList.remove('show');
+
+            setTimeout(() => {
+                chatInputEl.focus();
+                scrollToBottom();
+            }, 380);
+        }
+
+        function closeChat() {
+            chatPanel.classList.remove('open');
+            chatBackdrop.classList.remove('show');
+            chatToggleBtn.classList.remove('active');
+            chatPanel.style.transform = 'translateX(105%)';
+            chatPanel.style.visibility = 'hidden';
+            chatBackdrop.style.display = 'none';
+            emojiPicker.classList.remove('show');
+        }
+
+        function isChatOpen() {
+            return chatPanel.classList.contains('open');
+        }
+
+        chatToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (isChatOpen()) closeChat(); else openChat();
+        });
+
+        chatCloseBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeChat();
+        });
+
+        chatBackdrop.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeChat();
+        });
+
+        // ================= EMOJI PICKER =================
+        const emojiCategories = {
+            'الابتسامات': ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','😍','🤩','😘','😗','😚','😙','😋','😛','😜','😝','🤗','🤔','😏','😒','🙄','😬','😴','😷','🤒','🥵','🥶','🥴','😵','🤯','🤠','🥳','😎','🤓','🧐','😕','😟','😮','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','💀','💩','🤡','👹','👻','👽','👾'],
+            'التفاعلات': ['👋','🖐','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🧠','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','❣️','💕','💞','💓','💗','💖','💘','💝','💟','♥️'],
+            'الرياضة': ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🏑','🥍','🏏','🪃','🥅','⛳','🪁','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛼','🛷','🏂','🪂','🏋️','🤸','⛹️','🤺','🤾','🏌️','🏇','🧘','🏄','🏊','🤽','🚣','🚴','🚵','🏆','🥇','🥈','🥉','🏅','🎖','🎫','🎟','🎪','🎯','🎮','🎰']
+        };
+
+        function initEmojiPicker() {
+            emojiPickerHeader.innerHTML = '';
+            const categories = Object.keys(emojiCategories);
+            categories.forEach((cat, idx) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'emoji-cat-btn' + (idx === 0 ? ' active' : '');
+                btn.textContent = cat;
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    document.querySelectorAll('.emoji-cat-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    renderEmojiGrid(cat);
+                });
+                emojiPickerHeader.appendChild(btn);
+            });
+            renderEmojiGrid(categories[0]);
+        }
+
+        function renderEmojiGrid(category) {
+            emojiGrid.innerHTML = '';
+            (emojiCategories[category] || []).forEach(emoji => {
+                const item = document.createElement('span');
+                item.className = 'emoji-item';
+                item.textContent = emoji;
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    insertEmojiAtCursor(emoji);
+                });
+                emojiGrid.appendChild(item);
+            });
+        }
+
+        function insertEmojiAtCursor(emoji) {
+            const input = chatInputEl;
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            const text = input.value;
+            input.value = text.substring(0, start) + emoji + text.substring(end);
+            input.selectionStart = input.selectionEnd = start + emoji.length;
+            input.focus();
+        }
+
+        document.getElementById('emojiBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            emojiPicker.classList.toggle('show');
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.emoji-picker') && !e.target.closest('#emojiBtn')) {
+                emojiPicker.classList.remove('show');
+            }
+        });
+
+        // ================= MESSAGE LOGIC =================
+        chatInputEl.addEventListener('input', () => {
+            const now = Date.now();
+            if (now - lastTypingTime > 2000) {
+                lastTypingTime = now;
+                sendTypingIndicator();
+            }
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(clearTypingIndicator, 3000);
+        });
+
+        chatInputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChatMessage();
+            }
+        });
+
+        chatSendBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sendChatMessage();
+        });
+
+        async function sendTypingIndicator() {
+            try {
+                await set(ref(db, `chat/${chatRoomId}/typing/${sessionId}`), {
+                    username: myUsername,
+                    timestamp: Date.now()
+                });
+            } catch (err) {}
+        }
+
+        function clearTypingIndicator() {
+            remove(ref(db, `chat/${chatRoomId}/typing/${sessionId}`)).catch(() => {});
+        }
+
+        onValue(ref(db, `chat/${chatRoomId}/typing`), (snapshot) => {
+            const data = snapshot.val();
+            if (!data) { typingIndicator.textContent = ''; return; }
+            const users = Object.keys(data).filter(k => k !== sessionId).map(k => data[k].username).filter(Boolean);
+            if (users.length === 0) typingIndicator.textContent = '';
+            else if (users.length === 1) typingIndicator.innerHTML = `${escapeHtml(users[0])} يكتب...`;
+            else typingIndicator.innerHTML = `عدة أشخاص يكتبون...`;
+        });
+
+        function initChatPresence() {
+            const presenceRef = ref(db, `chat/${chatRoomId}/presence/${sessionId}`);
+            set(presenceRef, { username: myUsername, joinedAt: Date.now(), status: 'online' }).catch(() => {});
+            onDisconnect(presenceRef).remove();
+
+            onValue(ref(db, `chat/${chatRoomId}/presence`), (snapshot) => {
+                const data = snapshot.val();
+                const users = data ? Object.values(data) : [];
+                chatOnlineCount.textContent = users.length;
+                renderOnlineUsers(users);
+            });
+        }
+
+        function renderOnlineUsers(users) {
+            onlineUsersList.querySelectorAll('.online-user-avatar').forEach(el => el.remove());
+
+            users.slice(0, 15).forEach(user => {
+                const avatar = document.createElement('div');
+                avatar.className = 'online-user-avatar';
+                avatar.textContent = (user.username || 'U').substring(0, 2);
+                avatar.title = user.username;
+                onlineUsersList.appendChild(avatar);
+            });
+        }
+
+        function loadMessages() {
+            if (messagesUnsub) { messagesUnsub(); messagesUnsub = null; }
+            const messagesRef = query(ref(db, `chat/${chatRoomId}/messages`), orderByChild('timestamp'), limitToLast(100));
+            messagesUnsub = onValue(messagesRef, (snapshot) => {
+                const data = snapshot.val();
+                if (!data) {
+                    chatMessagesEl.innerHTML = `
+                        <div class="chat-empty">
+                            <i class="ph-duotone ph-chat-circle-dots"></i>
+                            <p>لا توجد رسائل بعد</p>
+                            <p style="font-size:11px; color:#555;">كن أول من يبدأ الدردشة المباشرة!</p>
+                        </div>`;
+                    return;
+                }
+
+                const messages = Object.keys(data).map(k => ({ id: k, ...data[k] })).sort((a, b) => a.timestamp - b.timestamp);
+                chatMessagesEl.innerHTML = '';
+                messages.forEach(msg => renderMessage(msg));
+                scrollToBottom();
+            });
+        }
+
+        function scrollToBottom() {
+            setTimeout(() => { chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight; }, 50);
+        }
+
+        function renderMessage(msg) {
+            const isMe = msg.sessionId === sessionId;
+            const emptyMsg = chatMessagesEl.querySelector('.chat-empty');
+            if (emptyMsg) emptyMsg.remove();
+
+            const div = document.createElement('div');
+            div.className = 'chat-message';
+
+            const initial = (msg.username || 'U').substring(0, 2).toUpperCase();
+            const time = new Date(msg.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+            const bubbleClass = isMe ? 'msg-bubble me' : (msg.isAdmin ? 'msg-bubble admin' : 'msg-bubble');
+            const canDelete = isMe;
+            const deleteBtn = canDelete ? `<i class="ph-bold ph-trash msg-delete-btn" title="حذف" data-msgid="${msg.id}"></i>` : '';
+            const renderedText = escapeHtml(msg.text);
+
+            div.innerHTML = `
+                <div class="msg-avatar">${initial}</div>
+                <div class="msg-content">
+                    <div class="msg-header">
+                        <span class="msg-name" ${isMe ? 'style="color: #10b981;"' : ''}>${escapeHtml(msg.username)}</span>
+                        <span class="msg-time">${time}</span>
+                        ${deleteBtn}
+                    </div>
+                    <div class="${bubbleClass}">${renderedText}</div>
+                </div>
+            `;
+
+            const delBtn = div.querySelector('.msg-delete-btn');
+            if (delBtn) {
+                delBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (confirm('هل تريد حذف هذه الرسالة؟')) {
+                        await remove(ref(db, `chat/${chatRoomId}/messages/${delBtn.dataset.msgid}`));
+                    }
+                });
+            }
+
+            chatMessagesEl.appendChild(div);
+
+            if (!isChatOpen() && !isMe) {
+                unreadCount++;
+                unreadBadge.textContent = unreadCount;
+                unreadBadge.classList.add('show');
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        async function sendChatMessage() {
+            const text = chatInputEl.value.trim();
+            if (!text) return;
+
+            chatSendBtn.disabled = true;
+            try {
+                await push(ref(db, `chat/${chatRoomId}/messages`), {
+                    text: text.substring(0, 500),
+                    username: myUsername,
+                    sessionId: sessionId,
+                    timestamp: Date.now()
+                });
+                chatInputEl.value = '';
+                clearTypingIndicator();
+                scrollToBottom();
+            } catch (err) {
+                alert('فشل الإرسال: ' + err.message);
+            } finally {
+                chatSendBtn.disabled = false;
+                chatInputEl.focus();
+            }
+        }
+
+        document.getElementById('clearMyMsgsBtn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!confirm('حذف جميع رسائلك نهائياً؟')) return;
+            try {
+                const snapshot = await get(ref(db, `chat/${chatRoomId}/messages`));
+                const data = snapshot.val();
+                if (!data) return;
+                const deletions = [];
+                Object.keys(data).forEach(key => {
+                    if (data[key].sessionId === sessionId) {
+                        deletions.push(remove(ref(db, `chat/${chatRoomId}/messages/${key}`)));
+                    }
+                });
+                await Promise.all(deletions);
+            } catch (err) {}
+        });
+
+        function initChatSystem() {
+            initEmojiPicker();
+            initChatPresence();
+            loadMessages();
+        }
+
+        // ================= APP ROUTING =================
+        let channelsData = {};
+        let selectedAdminChannelId = null;
+
+        function showAppPage(mode) {
+            document.body.classList.toggle('app-routing', mode !== 'player');
+            document.getElementById('channelPage').classList.toggle('active', mode === 'channels');
+            document.getElementById('adminPage').classList.toggle('active', mode === 'admin');
+            document.getElementById('fullscreenContainer').style.display = mode === 'player' ? 'block' : 'none';
+            try {
+                if (window.AndroidBridge && typeof window.AndroidBridge.setPlayerState === 'function') {
+                    window.AndroidBridge.setPlayerState(mode === 'player');
+                }
+            } catch (err) {}
+        }
+
+        function getInitials(name) {
+            if (!name) return '?';
+            const clean = name.replace(/[^\p{L}\p{Nd}\s]/gu, ' ').trim();
+            const parts = clean.split(/\s+/).filter(Boolean);
+            if (!parts.length) return (name.slice(0, 2) || '?').toUpperCase();
+            if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+            return (parts[0].slice(0, 1) + parts[1].slice(0, 1)).toUpperCase();
+        }
+
+        function getAvatarGradient(name) {
+            const gradients = [
+                'linear-gradient(135deg, #E11D48, #7C3AED)',
+                'linear-gradient(135deg, #2563EB, #06B6D4)',
+                'linear-gradient(135deg, #D97706, #DC2626)',
+                'linear-gradient(135deg, #059669, #10B981)',
+                'linear-gradient(135deg, #7C3AED, #DB2777)',
+                'linear-gradient(135deg, #4F46E5, #06B6D4)',
+                'linear-gradient(135deg, #EA580C, #F59E0B)',
+                'linear-gradient(135deg, #0D9488, #3B82F6)',
+                'linear-gradient(135deg, #9333EA, #4F46E5)',
+                'linear-gradient(135deg, #BE185D, #831843)'
+            ];
+            let hash = 0;
+            for (let i = 0; i < (name || '').length; i++) {
+                hash = (hash << 5) - hash + name.charCodeAt(i);
+                hash |= 0;
+            }
+            return gradients[Math.abs(hash) % gradients.length];
+        }
+
+        function renderChannelCards(channels) {
+            const grid = document.getElementById('channelsGrid');
+            if (!grid) return;
+            const items = Object.entries(channels || {}).filter(([, c]) => c && c.name);
+            if (!items.length) {
+                grid.innerHTML = '<div class="empty-state">لا توجد قنوات منشورة حالياً أونلاين.</div>';
+                return;
+            }
+            grid.innerHTML = '';
+            items.forEach(([id, channel]) => {
+                const card = document.createElement('article');
+                card.className = 'channel-card';
+                const initials = getInitials(channel.name);
+                const bgGrad = getAvatarGradient(channel.name);
+                const imgSrc = channel.image ? escapeHtml(channel.image) : '';
+
+                card.innerHTML = `
+                    <div class="channel-cover-wrap" style="background: ${bgGrad}; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                        ${imgSrc ? `<img class="channel-cover" src="${imgSrc}" alt="${escapeHtml(channel.name)}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">` : ''}
+                        <div class="channel-avatar-fallback" style="${imgSrc ? 'display:none;' : 'display:flex;'} width: 100%; height: 100%; align-items: center; justify-content: center; position: absolute; inset: 0; background: ${bgGrad};">
+                            <span style="font-size: 28px; font-weight: 900; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.5); letter-spacing: 1px;">${initials}</span>
+                        </div>
+                        <div class="channel-live-pill"><span class="channel-live-dot"></span>مباشر</div>
+                    </div>
+                    <div class="channel-card-body">
+                        <div>
+                            <div class="channel-card-name">${escapeHtml(channel.name)}</div>
+                            <div class="channel-card-meta">جودات وسيرفرات متعددة</div>
+                        </div>
+                        <div class="channel-play"><i class="ph-fill ph-play"></i></div>
+                    </div>`;
+                card.addEventListener('click', () => window.location.href = `?channel=${encodeURIComponent(id)}`);
+                grid.appendChild(card);
+            });
+        }
+
+        function renderAdminChannels() {
+            const list = document.getElementById('channelAdminList');
+            if (!list) return;
+            const items = Object.entries(channelsData || {});
+            if (!items.length) {
+                list.innerHTML = '<div class="empty-state">لا توجد قنوات.</div>';
+                return;
+            }
+            list.innerHTML = '';
+            items.forEach(([id, channel]) => {
+                const row = document.createElement('div');
+                row.className = 'channel-admin-item' + (selectedAdminChannelId === id ? ' active' : '');
+                const initials = getInitials(channel.name);
+                const bgGrad = getAvatarGradient(channel.name);
+                const imgSrc = channel.image ? escapeHtml(channel.image) : '';
+                
+                row.innerHTML = `
+                    <div style="width: 44px; height: 44px; border-radius: 8px; overflow: hidden; position: relative; flex-shrink: 0; background: ${bgGrad}; display: flex; align-items: center; justify-content: center;">
+                        ${imgSrc ? `<img src="${imgSrc}" alt="" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">` : ''}
+                        <div style="${imgSrc ? 'display:none;' : 'display:flex;'} width: 100%; height: 100%; align-items: center; justify-content: center; position: absolute; inset: 0; background: ${bgGrad}; font-size: 14px; font-weight: 900; color: #fff;">
+                            ${initials}
+                        </div>
+                    </div>
+                    <div class="channel-admin-info">
+                        <strong>${escapeHtml(channel.name)}</strong>
+                        <span>${escapeHtml(id)}</span>
+                    </div>
+                    <div class="channel-admin-actions">
+                        <button class="icon-btn delete" type="button" title="حذف القناة"><i class="ph-bold ph-trash"></i></button>
+                    </div>`;
+                row.onclick = (event) => { if (event.target.closest('button')) return; selectAdminChannel(id); };
+                row.querySelector('.icon-btn.delete').onclick = async (event) => { event.stopPropagation(); await deleteAdminChannel(id); };
+                list.appendChild(row);
+            });
+        }
+
+        async function selectAdminChannel(id) {
+            selectedAdminChannelId = id;
+            const channel = channelsData[id];
+            document.getElementById('selectedChannelLabel').textContent = channel ? `سيرفرات قناة: ${channel.name}` : 'اختر قناة.';
+            document.getElementById('channelServerForm').style.display = channel ? '' : 'none';
+            renderAdminChannels();
+            if (channel) {
+                onValue(ref(db, `servers/${id}`), snap => {
+                    const data = snap.val() || {};
+                    renderAdminServerList(Object.entries(data).map(([sid, value]) => ({ id:sid, ...value })));
+                });
+            }
+        }
+
+        async function deleteAdminChannel(id) {
+            if (!confirm('حذف هذه القناة وكل سيرفراتها نهائياً؟')) return;
+            try {
+                await remove(ref(db, `channels/${id}`));
+                await remove(ref(db, `servers/${id}`));
+                if (selectedAdminChannelId === id) {
+                    selectedAdminChannelId = null;
+                    document.getElementById('channelServerForm').style.display = 'none';
+                    document.getElementById('channelServerList').innerHTML = '';
+                }
+            } catch (err) { alert('فشل الحذف'); }
+        }
+
+        function renderAdminServerList(servers) {
+            const list = document.getElementById('channelServerList');
+            if (!list) return;
+            list.innerHTML = servers.length ? '' : '<div style="color:#666;font-size:11px">لا توجد جودات مضافة.</div>';
+            servers.forEach(server => {
+                const row = document.createElement('div');
+                row.className = 'server-admin-row';
+                row.innerHTML = `<div class="server-info"><strong>${escapeHtml(server.name)}</strong><small>${escapeHtml(server.url)}</small></div><button class="icon-btn delete" title="حذف"><i class="ph-bold ph-trash"></i></button>`;
+                row.querySelector('button').onclick = async () => { if(confirm('حذف السيرفر؟')) await remove(ref(db, `servers/${selectedAdminChannelId}/${server.id}`)); };
+                list.appendChild(row);
+            });
+        }
+
+        function initChannelsPage() {
+            showAppPage('channels');
+            onValue(ref(db, 'channels'), snap => {
+                channelsData = snap.val() || {};
+                renderChannelCards(channelsData);
+            });
+        }
+
+        function initAdminPage() {
+            showAppPage('admin');
+            onValue(ref(db, 'channels'), snap => {
+                channelsData = snap.val() || {};
+                renderAdminChannels();
+            });
+
+            document.getElementById('resetChannelBtn').onclick = () => {
+                document.getElementById('channelNameInput').value = '';
+                document.getElementById('channelImageInput').value = '';
+            };
+
+            document.getElementById('channelForm').onsubmit = async (e) => {
+                e.preventDefault();
+                const name = document.getElementById('channelNameInput').value.trim();
+                const image = document.getElementById('channelImageInput').value.trim();
+                if (!name || !image) return;
+                const id = 'chan_' + Date.now().toString(36);
+                try {
+                    await set(ref(db, `channels/${id}`), { name, image, createdAt: Date.now() });
+                    document.getElementById('channelForm').reset();
+                } catch(err) { alert('خطأ في النشر'); }
+            };
+
+            document.getElementById('channelServerForm').onsubmit = async (e) => {
+                e.preventDefault();
+                if (!selectedAdminChannelId) return;
+                const name = document.getElementById('channelServerName').value.trim();
+                const url = document.getElementById('channelServerUrl').value.trim();
+                if (!name || !url) return;
+                try {
+                    await push(ref(db, `servers/${selectedAdminChannelId}`), { name, url, hideViewers: false, createdAt: Date.now() });
+                    document.getElementById('channelServerForm').reset();
+                } catch(err) { alert('خطأ في إضافة السيرفر'); }
+            };
+        }
+
+        function initPlayerPage() {
+            showAppPage('player');
+            applyFitMode(currentFitMode, false);
+            setupLivePlayer();
+            initFirebaseSync();
+            initChatSystem();
+        }
+
+        window.addEventListener('load', () => {
+            if (appMode === 'admin') initAdminPage();
+            else if (appMode === 'player') initPlayerPage();
+            else initChannelsPage();
+        });
+    </script>
+</body>
+</html>
